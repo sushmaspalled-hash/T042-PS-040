@@ -244,6 +244,15 @@ class CommandProcessor:
                 if seat_id in occupied_set:
                     continue
 
+                has_left_neighbor = any(
+                    item["seat_no"] == seat_no - 1
+                    for item in all_row_seats
+                )
+                has_right_neighbor = any(
+                    item["seat_no"] == seat_no + 1
+                    for item in all_row_seats
+                )
+
                 left_occupied = any(
                     item["seat_no"] == seat_no - 1
                     and item["seat_id"] in occupied_set
@@ -256,7 +265,15 @@ class CommandProcessor:
                     for item in all_row_seats
                 )
 
-                if left_occupied and right_occupied:
+                isolated_between_occupied = left_occupied and right_occupied
+                isolated_at_left_edge = not has_left_neighbor and right_occupied
+                isolated_at_right_edge = not has_right_neighbor and left_occupied
+
+                if (
+                    isolated_between_occupied
+                    or isolated_at_left_edge
+                    or isolated_at_right_edge
+                ):
                     return False, "Selection leaves an isolated empty seat"
 
         return True, "Seats available"
@@ -900,10 +917,29 @@ class CommandProcessor:
             (booking_id,)
         ).fetchall()
 
+        if not rows:
+            print(f"Invoice not found for booking: {booking_id}")
+            return
+
+        print(f"\\nINVOICE: {booking_id}")
+        print("-" * 60)
+
         for row in rows:
-            self.ticket_rows.append({
-                header: row[header] for header in TICKET_HEADERS
-            })
+            print(
+                f"Seat: {row['seat_id']} | Tier: {row['tier']} | "
+                f"Ticket: ₹{row['ticket_price']:.2f} | "
+                f"GST: ₹{row['gst_on_ticket']:.2f} | "
+                f"Fee: ₹{row['convenience_fee']:.2f} | "
+                f"Fee GST: ₹{row['gst_on_fee']:.2f} | "
+                f"Total: ₹{row['ticket_total']:.2f}"
+            )
+
+        invoice_total = sum(
+            (Decimal(str(row["ticket_total"])) for row in rows),
+            Decimal("0")
+        )
+        print("-" * 60)
+        print(f"Invoice total: ₹{money(invoice_total):.2f}")
 
     def print_seatmap(self, parts):
         _, show_id = parts

@@ -29,18 +29,17 @@ ts,command,reference,result,reason,refund_amount,points_earned,points_reversed,p
 2026-10-16 09:13:00,HOLD,HLD-014,EXPIRED,Hold expired after 8 minutes,0.00,0,0,0
 2026-10-16 09:13:00,HOLD,HLD-015,OK,Seats held successfully,0.00,0,0,0
 2026-10-16 09:21:00,HOLD,HLD-015,EXPIRED,Hold expired after 8 minutes,0.00,0,0,0
-2026-10-16 09:40:00,HOLD,HLD-016,OK,Seats held successfully,0.00,0,0,0
+2026-10-16 09:40:00,HOLD,HLD-016,REJECTED,Selection leaves an isolated empty seat,0.00,0,0,0
 2026-10-16 09:40:00,HOLD,HLD-017,OK,Seats held successfully,0.00,0,0,0
-2026-10-16 09:41:30,HOLD,HLD-018,REJECTED,Seat A2 is unavailable,0.00,0,0,0
-2026-10-16 09:44:50,BOOK,BKG-008,REJECTED,Active hold not found or expired,0.00,0,0,0
-2026-10-16 10:11:00,CANCEL,BKG-008,REJECTED,Booking not found or already cancelled,0.00,0,0,0
-2026-10-16 09:48:00,HOLD,HLD-016,EXPIRED,Hold expired after 8 minutes,0.00,0,0,0
+2026-10-16 09:41:30,HOLD,HLD-018,OK,Seats held successfully,0.00,0,0,0
+2026-10-16 09:44:50,BOOK,BKG-008,OK,Booking confirmed,0.00,15,0,0
+2026-10-16 10:11:00,CANCEL,BKG-008,OK,Booking cancelled,0.00,0,15,0
 2026-10-16 09:48:00,HOLD,HLD-017,EXPIRED,Hold expired after 8 minutes,0.00,0,0,0
 2026-10-16 10:59:00,HOLD,HLD-019,OK,Seats held successfully,0.00,0,0,0
 2026-10-16 11:00:00,CANCEL,BKG-003,OK,Booking cancelled,552.00,0,110,0
 2026-10-16 11:02:54,BOOK,BKG-009,OK,Booking confirmed,0.00,80,0,0
-2026-10-16 12:30:00,HOLD,HLD-020,OK,Seats held successfully,0.00,0,0,0
-2026-10-16 12:34:00,BOOK,BKG-010,OK,Booking confirmed,0.00,66,0,0
+2026-10-16 12:30:00,HOLD,HLD-020,REJECTED,Selection leaves an isolated empty seat,0.00,0,0,0
+2026-10-16 12:34:00,BOOK,BKG-010,REJECTED,Active hold not found or expired,0.00,0,0,0
 2026-10-16 12:55:00,HOLD,HLD-021,OK,Seats held successfully,0.00,0,0,0
 2026-10-16 12:59:14,BOOK,BKG-011,OK,Booking confirmed,0.00,36,0,0
 2026-10-16 13:30:00,HOLD,HLD-022,OK,Seats held successfully,0.00,0,0,0
@@ -73,7 +72,8 @@ ts,command,reference,result,reason,refund_amount,points_earned,points_reversed,p
 2026-10-17 08:48:26,BOOK,BKG-019,OK,Booking confirmed,0.00,90,0,0
 2026-10-17 08:52:51,BOOK,BKG-020,OK,Booking confirmed,0.00,78,0,0
 2026-10-17 09:00:00,HOLD,HLD-035,OK,Seats held successfully,0.00,0,0,0
-2026-10-17 09:02:00,BOOK,BKG-021,OK,Booking confirmed,0.00,18,0,0
+2026-10-17 09:02:00,BOOK,BKG-021,REJECTED,Insufficient loyalty points,0.00,0,0,0
+2026-10-17 09:08:00,HOLD,HLD-035,EXPIRED,Hold expired after 8 minutes,0.00,0,0,0
 2026-10-17 09:50:00,HOLD,HLD-036,OK,Seats held successfully,0.00,0,0,0
 2026-10-17 09:55:12,BOOK,BKG-022,OK,Booking confirmed,0.00,63,0,0
 2026-10-17 10:20:10,HOLD,HLD-037,OK,Seats held successfully,0.00,0,0,0
@@ -82,16 +82,15 @@ ts,command,reference,result,reason,refund_amount,points_earned,points_reversed,p
 2026-10-17 10:23:40,HOLD,HLD-039,OK,Seats held successfully,0.00,0,0,0
 2026-10-17 10:25:10,BOOK,BKG-024,OK,Booking confirmed,0.00,128,0,0
 2026-10-17 10:25:13,BOOK,BKG-023,OK,Booking confirmed,0.00,104,0,0
-2026-10-17 11:00:00,HOLD,HLD-040,OK,Seats held successfully,0.00,0,0,0
-2026-10-17 11:07:50,HOLD,HLD-041,OK,Seats held successfully,0.00,0,0,0
-2026-10-17 11:08:50,BOOK,BKG-025,OK,Booking confirmed,0.00,84,0,0
-2026-10-17 12:00:00,CANCEL,BKG-025,OK,Booking cancelled,420.00,0,84,0
+2026-10-17 11:00:00,HOLD,HLD-040,REJECTED,Selection leaves an isolated empty seat,0.00,0,0,0
+2026-10-17 11:07:50,HOLD,HLD-041,REJECTED,Selection leaves an isolated empty seat,0.00,0,0,0
+2026-10-17 11:08:50,BOOK,BKG-025,REJECTED,Active hold not found or expired,0.00,0,0,0
+2026-10-17 12:00:00,CANCEL,BKG-025,REJECTED,Booking not found or already cancelled,0.00,0,0,0
 2026-10-17 12:00:00,HOLD,HLD-042,REJECTED,Maximum 10 seats allowed,0.00,0,0,0
 2026-10-17 12:00:00,CANCEL_SHOW,SH-10,OK,Show cancelled by venue,2245.54,0,0,332
 2026-10-17 12:56:00,HOLD,HLD-043,OK,Seats held successfully,0.00,0,0,0
-2026-10-17 12:57:40,BOOK,BKG-026,REJECTED,Insufficient loyalty points,0.00,0,0,0
+2026-10-17 12:57:40,BOOK,BKG-026,OK,Booking confirmed,0.00,33,0,0
 2026-10-17 13:30:00,CANCEL,BKG-011,OK,Booking cancelled,0.00,0,36,0
-2026-10-17 13:04:00,HOLD,HLD-043,EXPIRED,Hold expired after 8 minutes,0.00,0,0,0
 2026-10-17 14:00:00,HOLD,HLD-044,REJECTED,Seats must be consecutive,0.00,0,0,0
 2026-10-17 16:00:00,CANCEL,BKG-024,OK,Booking cancelled,966.00,0,128,0
 2026-10-17 16:05:00,HOLD,HLD-045,OK,Seats held successfully,0.00,0,0,0
