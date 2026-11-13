@@ -1,0 +1,7 @@
+screen_id,venue_id,screen_name,total_seats
+SCR-01,VEN-01,Audi 1,76
+SCR-02,VEN-01,Audi 2,76
+SCR-03,VEN-01,Audi 3,76
+SCR-04,VEN-02,Audi 1,76
+SCR-05,VEN-02,Audi 2,76
+SCR-06,VEN-02,Audi 3,76
