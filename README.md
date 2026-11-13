@@ -200,3 +200,69 @@ https://github.com/sushmaspalled-hash/T042-PS-040
 ---
 
 **Project Status:** Core implementation and initial test suite completed. Final validation and documentation review are in progress.
+
+## 13. Project Status
+
+Core backend implementation completed.
+
+- Seat hold and booking management implemented.
+- Dynamic pricing and discount calculations implemented.
+- Loyalty points and cancellation/refund handling implemented.
+- SQLite database integration completed.
+- CSV reports generated successfully.
+- 26 automated tests passed.
+- Latest changes committed and pushed to GitHub.
+
+The project is ready for final integration and demonstration.
+
+
+## 14. System Workflow
+
+The application follows this workflow:
+
+1. User interacts with the application menu.
+2. Command Processor receives the user's request.
+3. Business logic services process the request.
+4. Seat Service manages seat availability and holds.
+5. Booking Service handles booking confirmation.
+6. Pricing Service calculates ticket prices and discounts.
+7. Loyalty Service manages reward points.
+8. Cancellation Service processes cancellations and refunds.
+9. SQLite stores the application data.
+10. CSV reports are generated for ticket lines, booking events and seat maps.
+
+### Architecture
+
+User
+  |
+  v
+Interactive Menu
+  |
+  v
+Command Processor
+  |
+  v
+Business Logic Services
+  |
+  +-- Seat Service
+  +-- Booking Service
+  +-- Pricing Service
+  +-- Loyalty Service
+  +-- Cancellation Service
+  |
+  v
+SQLite Database
+  |
+  v
+CSV Reports
+
+## 15. Future Enhancements
+
+The following features can be considered for future development:
+
+- Web-based user interface.
+- Online payment gateway integration.
+- Admin dashboard.
+- Email and SMS booking confirmations.
+- Real-time seat availability.
+- Enhanced booking analytics.
