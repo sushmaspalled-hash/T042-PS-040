@@ -1,36 +1,27 @@
-# Python virtual environment
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment
 venv/
 .venv/
 
-# Python cache files
-__pycache__/
-*.py[cod]
-*$py.class
-
-# Testing cache
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Environment variables and secrets
+# Environment variables
 .env
-.env.*
-!.env.example
 
 # Database files
 *.db
 *.sqlite
 *.sqlite3
 
-# Generated output files
-/output/
-/data/commands.json
+# Pytest
+.pytest_cache/
 
-# IDE settings
+# IDE
 .vscode/
-.idea/
 
-# Operating system files
+# Operating system
 .DS_Store
 Thumbs.db
 desktop.ini
