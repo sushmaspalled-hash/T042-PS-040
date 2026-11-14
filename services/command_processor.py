@@ -1,5 +1,4 @@
 import csv
-import sqlite3
 from pathlib import Path
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
@@ -28,11 +27,8 @@ EVENT_HEADERS = [
 SEATMAP_HEADERS = ["show_id", "seat_id", "state", "reference"]
 
 OCCUPANCY_HEADERS = [
-    "show_id",
-    "total_seats",
-    "occupied_seats",
-    "available_seats",
-    "occupancy_percentage"
+    "show_id", "total_seats", "occupied_seats",
+    "available_seats", "occupancy_percentage"
 ]
 
 
@@ -117,6 +113,9 @@ class CommandProcessor:
         return row["screen_id"] if row else None
 
     def get_seats(self, show_id, seat_ids):
+        if not seat_ids:
+            return []
+
         screen_id = self.get_screen_id(show_id)
 
         if not screen_id:
@@ -135,7 +134,10 @@ class CommandProcessor:
             [screen_id] + seat_ids
         ).fetchall()
 
-    def get_occupied_seats(self, show_id, ts):
+    # BR-01 FIX:
+    # Optionally ignore the current user's existing active holds
+    # while validating their replacement hold.
+    def get_occupied_seats(self, show_id, ts, exclude_user_id=None):
         rows = self.connection.execute(
             """
             SELECT seat_id
@@ -160,16 +162,29 @@ class CommandProcessor:
 
         occupied.update(row["seat_id"] for row in booked)
 
-        held = self.connection.execute(
-            """
-            SELECT seat_id
-            FROM seat_holds
-            WHERE show_id = ?
-            AND status = 'ACTIVE'
-            AND expires_at > ?
-            """,
-            (show_id, ts)
-        ).fetchall()
+        if exclude_user_id is None:
+            held = self.connection.execute(
+                """
+                SELECT seat_id
+                FROM seat_holds
+                WHERE show_id = ?
+                AND status = 'ACTIVE'
+                AND expires_at > ?
+                """,
+                (show_id, ts)
+            ).fetchall()
+        else:
+            held = self.connection.execute(
+                """
+                SELECT seat_id
+                FROM seat_holds
+                WHERE show_id = ?
+                AND status = 'ACTIVE'
+                AND expires_at > ?
+                AND user_id != ?
+                """,
+                (show_id, ts, exclude_user_id)
+            ).fetchall()
 
         occupied.update(row["seat_id"] for row in held)
 
@@ -190,7 +205,7 @@ class CommandProcessor:
 
         return len(occupied) / total * 100
 
-    def validate_seats(self, show_id, seat_ids, ts):
+    def validate_seats(self, show_id, seat_ids, ts, user_id=None):
         if not seat_ids:
             return False, "No seats selected"
 
@@ -205,7 +220,9 @@ class CommandProcessor:
         if len(seats) != len(seat_ids):
             return False, "Invalid seat selection"
 
-        occupied = self.get_occupied_seats(show_id, ts)
+        occupied = self.get_occupied_seats(
+            show_id, ts, exclude_user_id=user_id
+        )
 
         for seat_id in seat_ids:
             if seat_id in occupied:
@@ -247,10 +264,7 @@ class CommandProcessor:
                 seat_id = row_seat["seat_id"]
                 seat_no = row_seat["seat_no"]
 
-                if seat_id in selected:
-                    continue
-
-                if seat_id in occupied_set:
+                if seat_id in selected or seat_id in occupied_set:
                     continue
 
                 has_left_neighbor = any(
@@ -274,9 +288,15 @@ class CommandProcessor:
                     for item in all_row_seats
                 )
 
-                isolated_between_occupied = left_occupied and right_occupied
-                isolated_at_left_edge = not has_left_neighbor and right_occupied
-                isolated_at_right_edge = not has_right_neighbor and left_occupied
+                isolated_between_occupied = (
+                    left_occupied and right_occupied
+                )
+                isolated_at_left_edge = (
+                    not has_left_neighbor and right_occupied
+                )
+                isolated_at_right_edge = (
+                    not has_right_neighbor and left_occupied
+                )
 
                 if (
                     isolated_between_occupied
@@ -310,17 +330,18 @@ class CommandProcessor:
                 (hold_id,)
             )
 
+            held_row = self.connection.execute(
+                """
+                SELECT held_at FROM seat_holds
+                WHERE hold_id = ?
+                LIMIT 1
+                """,
+                (hold_id,)
+            ).fetchone()
+
             expiry_time = (
-                parse_time(
-                    self.connection.execute(
-                        """
-                        SELECT held_at FROM seat_holds
-                        WHERE hold_id = ?
-                        LIMIT 1
-                        """,
-                        (hold_id,)
-                    ).fetchone()["held_at"]
-                ) + timedelta(minutes=8)
+                parse_time(held_row["held_at"])
+                + timedelta(minutes=8)
             ).strftime("%Y-%m-%d %H:%M:%S")
 
             self.add_event(
@@ -335,7 +356,11 @@ class CommandProcessor:
 
         self.release_expired(ts)
 
-        seat_ids = [seat.strip() for seat in seats_text.split(",") if seat.strip()]
+        seat_ids = [
+            seat.strip()
+            for seat in seats_text.split(",")
+            if seat.strip()
+        ]
 
         show = self.get_show(show_id)
 
@@ -352,13 +377,16 @@ class CommandProcessor:
             self.add_event(ts, "HOLD", hold_id, "REJECTED", "User not found")
             return
 
-        valid, reason = self.validate_seats(show_id, seat_ids, ts)
+        # BR-01: Validate while ignoring this user's previous active hold.
+        valid, reason = self.validate_seats(
+            show_id, seat_ids, ts, user_id
+        )
 
         if not valid:
             self.add_event(ts, "HOLD", hold_id, "REJECTED", reason)
             return
 
-        # A user's second hold on the same show cancels the first.
+        # Find this user's previous active holds for this show.
         previous = self.connection.execute(
             """
             SELECT DISTINCT hold_id
@@ -370,42 +398,61 @@ class CommandProcessor:
             (user_id, show_id)
         ).fetchall()
 
+        # Release previous holds and record their actual release time.
         for row in previous:
+            old_hold_id = row["hold_id"]
+
             self.connection.execute(
                 """
                 UPDATE seat_holds
                 SET status = 'RELEASED'
                 WHERE hold_id = ?
                 """,
-                (row["hold_id"],)
+                (old_hold_id,)
+            )
+
+            self.add_event(
+                ts, "RELEASE", old_hold_id, "OK",
+                "Previous hold replaced by a new hold"
             )
 
         occupancy = self.occupancy(show_id, ts)
 
-        # Reuse the frozen occupancy when recliner seats are re-held
-        # within the same minute after release.
-        previous_recliner = self.connection.execute(
-            """
-            SELECT occupancy_pct_frozen, held_at
-            FROM seat_holds
-            WHERE show_id = ?
-            AND seat_id IN (
-                SELECT seat_id FROM seats
-                WHERE screen_id = ? AND tier = 'RECLINER'
-            )
-            AND status = 'RELEASED'
-            ORDER BY held_at DESC
-            """,
-            (show_id, show["screen_id"])
-        ).fetchall()
+        # BR-12: Check only the exact RECLINER seats being re-held.
+        recliner_ids = [
+            seat["seat_id"]
+            for seat in self.get_seats(show_id, seat_ids)
+            if seat["tier"] == "RECLINER"
+        ]
 
-        for old in previous_recliner:
-            old_time = parse_time(old["held_at"])
-            new_time = parse_time(ts)
+        if recliner_ids:
+            placeholders = ",".join("?" for _ in recliner_ids)
 
-            if old_time.strftime("%Y-%m-%d %H:%M") == new_time.strftime("%Y-%m-%d %H:%M"):
-                occupancy = old["occupancy_pct_frozen"]
-                break
+            previous_recliner = self.connection.execute(
+                f"""
+                SELECT sh.occupancy_pct_frozen, ev.ts AS released_at
+                FROM seat_holds sh
+                JOIN booking_events ev
+                    ON ev.reference = sh.hold_id
+                JOIN seats s
+                    ON s.seat_id = sh.seat_id
+                WHERE sh.show_id = ?
+                AND sh.seat_id IN ({placeholders})
+                AND sh.status = 'RELEASED'
+                AND sh.user_id != ?
+                AND s.tier = 'RECLINER'
+                AND ev.command = 'RELEASE'
+                AND ev.result = 'OK'
+                AND strftime('%Y-%m-%d %H:%M', ev.ts)
+                    = strftime('%Y-%m-%d %H:%M', ?)
+                ORDER BY ev.event_id DESC
+                LIMIT 1
+                """,
+                [show_id] + recliner_ids + [user_id, ts]
+            ).fetchone()
+
+            if previous_recliner:
+                occupancy = previous_recliner["occupancy_pct_frozen"]
 
         expires_at = (
             parse_time(ts) + timedelta(minutes=8)
@@ -427,7 +474,9 @@ class CommandProcessor:
 
         self.connection.commit()
 
-        self.add_event(ts, "HOLD", hold_id, "OK", "Seats held successfully")
+        self.add_event(
+            ts, "HOLD", hold_id, "OK", "Seats held successfully"
+        )
 
     def release(self, parts):
         _, hold_id, ts = parts
@@ -445,7 +494,10 @@ class CommandProcessor:
         ).fetchone()
 
         if not row:
-            self.add_event(ts, "RELEASE", hold_id, "REJECTED", "Active hold not found")
+            self.add_event(
+                ts, "RELEASE", hold_id, "REJECTED",
+                "Active hold not found"
+            )
             return
 
         self.connection.execute(
@@ -459,9 +511,13 @@ class CommandProcessor:
 
         self.connection.commit()
 
-        self.add_event(ts, "RELEASE", hold_id, "OK", "Hold released")
+        self.add_event(
+            ts, "RELEASE", hold_id, "OK", "Hold released"
+        )
 
-    def calculate_ticket(self, show, seat, occupancy, booking_time, count, group_discount):
+    def calculate_ticket(
+        self, show, seat, occupancy, booking_time, count, group_discount
+    ):
         tier = seat["tier"]
 
         if tier == "CLASSIC":
@@ -485,7 +541,6 @@ class CommandProcessor:
 
         time_adjustment = "NONE"
 
-        # Opening day takes priority over the last-two-hours discount.
         movie = self.connection.execute(
             """
             SELECT release_date FROM movies WHERE movie_id = ?
@@ -561,7 +616,10 @@ class CommandProcessor:
         ).fetchall()
 
         if not hold_rows:
-            self.add_event(ts, "BOOK", booking_id, "REJECTED", "Active hold not found or expired")
+            self.add_event(
+                ts, "BOOK", booking_id, "REJECTED",
+                "Active hold not found or expired"
+            )
             return
 
         hold = hold_rows[0]
@@ -569,7 +627,9 @@ class CommandProcessor:
         user_id = hold["user_id"]
 
         if any(row["expires_at"] <= ts for row in hold_rows):
-            self.add_event(ts, "BOOK", booking_id, "REJECTED", "Hold expired")
+            self.add_event(
+                ts, "BOOK", booking_id, "REJECTED", "Hold expired"
+            )
             return
 
         show = self.get_show(show_id)
@@ -579,16 +639,26 @@ class CommandProcessor:
         )
 
         ages = []
+
         if ages_text.strip():
             try:
-                ages = [int(age.strip()) for age in ages_text.split(",")]
+                ages = [
+                    int(age.strip())
+                    for age in ages_text.split(",")
+                ]
             except ValueError:
-                self.add_event(ts, "BOOK", booking_id, "REJECTED", "Invalid holder ages")
+                self.add_event(
+                    ts, "BOOK", booking_id, "REJECTED",
+                    "Invalid holder ages"
+                )
                 return
 
         if show["certificate"] == "A":
             if len(ages) != len(seats) or any(age < 18 for age in ages):
-                self.add_event(ts, "BOOK", booking_id, "REJECTED", "A-rated shows require every holder to be at least 18")
+                self.add_event(
+                    ts, "BOOK", booking_id, "REJECTED",
+                    "A-rated shows require every holder to be at least 18"
+                )
                 return
 
         occupancy = hold["occupancy_pct_frozen"]
@@ -619,20 +689,32 @@ class CommandProcessor:
         available_points = user["loyalty_points"]
 
         if requested_points < 0 or requested_points > available_points:
-            self.add_event(ts, "BOOK", booking_id, "REJECTED", "Insufficient loyalty points")
+            self.add_event(
+                ts, "BOOK", booking_id, "REJECTED",
+                "Insufficient loyalty points"
+            )
             return
 
         if requested_points % 100 != 0:
-            self.add_event(ts, "BOOK", booking_id, "REJECTED", "Points redemption must be in multiples of 100")
+            self.add_event(
+                ts, "BOOK", booking_id, "REJECTED",
+                "Points redemption must be in multiples of 100"
+            )
             return
 
-        requested_discount = Decimal(requested_points // 100) * Decimal("50")
+        requested_discount = (
+            Decimal(requested_points // 100) * Decimal("50")
+        )
         max_discount = money(subtotal * Decimal("0.50"))
         loyalty_discount = min(requested_discount, max_discount)
 
         if requested_discount > max_discount:
-            requested_points = int(max_discount // Decimal("50")) * 100
-            loyalty_discount = Decimal(requested_points // 100) * Decimal("50")
+            requested_points = int(
+                max_discount // Decimal("50")
+            ) * 100
+            loyalty_discount = (
+                Decimal(requested_points // 100) * Decimal("50")
+            )
 
         discount_remaining = loyalty_discount
 
@@ -649,13 +731,20 @@ class CommandProcessor:
 
             final_price = money(original_price - seat_discount)
 
-            gst_rate = Decimal("0.12") if final_price <= 100 else Decimal("0.18")
+            gst_rate = (
+                Decimal("0.12")
+                if final_price <= 100
+                else Decimal("0.18")
+            )
             gst_ticket = money(final_price * gst_rate)
 
             convenience_fee = fee
             gst_fee = money(convenience_fee * Decimal("0.18"))
 
-            total = money(final_price + gst_ticket + convenience_fee + gst_fee)
+            total = money(
+                final_price + gst_ticket
+                + convenience_fee + gst_fee
+            )
             ticket_total += total
 
             earned_points += int(final_price // 10)
@@ -758,7 +847,10 @@ class CommandProcessor:
         ).fetchone()
 
         if not booking or booking["status"] != "CONFIRMED":
-            self.add_event(ts, "CANCEL", booking_id, "REJECTED", "Booking not found or already cancelled")
+            self.add_event(
+                ts, "CANCEL", booking_id, "REJECTED",
+                "Booking not found or already cancelled"
+            )
             return
 
         tickets = self.connection.execute(
@@ -930,7 +1022,7 @@ class CommandProcessor:
             print(f"Invoice not found for booking: {booking_id}")
             return
 
-        print(f"\\nINVOICE: {booking_id}")
+        print(f"\nINVOICE: {booking_id}")
         print("-" * 60)
 
         for row in rows:
@@ -947,6 +1039,7 @@ class CommandProcessor:
             (Decimal(str(row["ticket_total"])) for row in rows),
             Decimal("0")
         )
+
         print("-" * 60)
         print(f"Invoice total: ₹{money(invoice_total):.2f}")
 
@@ -1025,7 +1118,11 @@ class CommandProcessor:
             })
 
     def write_occupancy_report(self):
-        report_ts = self.report_ts or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        report_ts = (
+            self.report_ts
+            or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        )
+
         rows = []
 
         shows = self.connection.execute(
@@ -1045,7 +1142,10 @@ class CommandProcessor:
             occupied = min(occupied, total)
             available = total - occupied
 
-            percentage = round((occupied / total) * 100, 2) if total else 0.0
+            percentage = (
+                round((occupied / total) * 100, 2)
+                if total else 0.0
+            )
 
             rows.append({
                 "show_id": show_id,
@@ -1073,24 +1173,25 @@ class CommandProcessor:
                 parts = line.split("|")
                 command = parts[0]
 
-                if command in ("HOLD", "RELEASE", "BOOK", "CANCEL", "CANCEL_SHOW"):
+                if command in (
+                    "HOLD", "RELEASE", "BOOK", "CANCEL", "CANCEL_SHOW"
+                ):
                     if len(parts) > 2:
                         self.report_ts = parts[2]
 
                 try:
-                    # Make command-file replay safe. Successful commands are
-                    # already reflected in the persistent database, so do not
-                    # execute them a second time (which would duplicate holds,
-                    # bookings, refunds, or loyalty-point changes).
-                    if command in ("HOLD", "RELEASE", "BOOK", "CANCEL", "CANCEL_SHOW"):
+                    if command in (
+                        "HOLD", "RELEASE", "BOOK", "CANCEL", "CANCEL_SHOW"
+                    ):
                         reference = parts[1] if len(parts) > 1 else ""
+
                         already_processed = self.connection.execute(
                             """
                             SELECT 1
                             FROM booking_events
                             WHERE command = ?
-                              AND reference = ?
-                              AND result = 'OK'
+                            AND reference = ?
+                            AND result = 'OK'
                             LIMIT 1
                             """,
                             (command, reference)
@@ -1125,7 +1226,9 @@ class CommandProcessor:
                         self.print_seatmap(parts)
 
                     else:
-                        print(f"Unknown command at line {line_number}: {command}")
+                        print(
+                            f"Unknown command at line {line_number}: {command}"
+                        )
 
                 except Exception as error:
                     print(
@@ -1134,9 +1237,6 @@ class CommandProcessor:
                     )
                     raise
 
-        # Export the complete ticket history from SQLite, not only tickets
-        # created during this execution. This keeps the CSV populated when
-        # previously processed commands are safely skipped on replay.
         ticket_records = self.connection.execute(
             """
             SELECT booking_id, show_id, seat_id, tier, base_price,
@@ -1148,10 +1248,9 @@ class CommandProcessor:
             ORDER BY booking_id, seat_id
             """
         ).fetchall()
+
         all_ticket_rows = [dict(row) for row in ticket_records]
 
-        # Export the complete event history from SQLite as well. The in-memory
-        # list contains only events created during this execution.
         event_records = self.connection.execute(
             """
             SELECT ts, command, reference, result, reason, refund_amount,
@@ -1160,6 +1259,7 @@ class CommandProcessor:
             ORDER BY event_id
             """
         ).fetchall()
+
         all_event_rows = [dict(row) for row in event_records]
 
         write_csv("ticket_lines.csv", TICKET_HEADERS, all_ticket_rows)
