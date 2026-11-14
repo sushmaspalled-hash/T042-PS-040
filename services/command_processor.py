@@ -27,6 +27,14 @@ EVENT_HEADERS = [
 
 SEATMAP_HEADERS = ["show_id", "seat_id", "state", "reference"]
 
+OCCUPANCY_HEADERS = [
+    "show_id",
+    "total_seats",
+    "occupied_seats",
+    "available_seats",
+    "occupancy_percentage"
+]
+
 
 def money(value):
     return Decimal(str(value)).quantize(
@@ -54,6 +62,7 @@ class CommandProcessor:
         self.ticket_rows = []
         self.event_rows = []
         self.seatmap_rows = []
+        self.report_ts = None
 
     def close(self):
         self.connection.close()
@@ -1015,6 +1024,39 @@ class CommandProcessor:
                 "reference": reference
             })
 
+    def write_occupancy_report(self):
+        report_ts = self.report_ts or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        rows = []
+
+        shows = self.connection.execute(
+            "SELECT show_id, screen_id FROM shows ORDER BY show_id"
+        ).fetchall()
+
+        for show in shows:
+            show_id = show["show_id"]
+            screen_id = show["screen_id"]
+
+            total = self.connection.execute(
+                "SELECT COUNT(*) FROM seats WHERE screen_id = ?",
+                (screen_id,)
+            ).fetchone()[0]
+
+            occupied = len(self.get_occupied_seats(show_id, report_ts))
+            occupied = min(occupied, total)
+            available = total - occupied
+
+            percentage = round((occupied / total) * 100, 2) if total else 0.0
+
+            rows.append({
+                "show_id": show_id,
+                "total_seats": total,
+                "occupied_seats": occupied,
+                "available_seats": available,
+                "occupancy_percentage": percentage
+            })
+
+        write_csv("occupancy_summary.csv", OCCUPANCY_HEADERS, rows)
+
     def process_file(self):
         if not COMMAND_FILE.exists():
             raise FileNotFoundError(
@@ -1031,7 +1073,36 @@ class CommandProcessor:
                 parts = line.split("|")
                 command = parts[0]
 
+                if command in ("HOLD", "RELEASE", "BOOK", "CANCEL", "CANCEL_SHOW"):
+                    if len(parts) > 2:
+                        self.report_ts = parts[2]
+
                 try:
+                    # Make command-file replay safe. Successful commands are
+                    # already reflected in the persistent database, so do not
+                    # execute them a second time (which would duplicate holds,
+                    # bookings, refunds, or loyalty-point changes).
+                    if command in ("HOLD", "RELEASE", "BOOK", "CANCEL", "CANCEL_SHOW"):
+                        reference = parts[1] if len(parts) > 1 else ""
+                        already_processed = self.connection.execute(
+                            """
+                            SELECT 1
+                            FROM booking_events
+                            WHERE command = ?
+                              AND reference = ?
+                              AND result = 'OK'
+                            LIMIT 1
+                            """,
+                            (command, reference)
+                        ).fetchone()
+
+                        if already_processed:
+                            print(
+                                f"Skipping already processed command "
+                                f"at line {line_number}: {command} {reference}"
+                            )
+                            continue
+
                     if command == "HOLD":
                         self.hold(parts)
 
@@ -1063,14 +1134,44 @@ class CommandProcessor:
                     )
                     raise
 
-        write_csv("ticket_lines.csv", TICKET_HEADERS, self.ticket_rows)
-        write_csv("booking_events.csv", EVENT_HEADERS, self.event_rows)
+        # Export the complete ticket history from SQLite, not only tickets
+        # created during this execution. This keeps the CSV populated when
+        # previously processed commands are safely skipped on replay.
+        ticket_records = self.connection.execute(
+            """
+            SELECT booking_id, show_id, seat_id, tier, base_price,
+                   occupancy_pct_frozen, dynamic_multiplier,
+                   time_adjustment, offer_applied, offer_discount,
+                   loyalty_discount, ticket_price, gst_rate, gst_on_ticket,
+                   convenience_fee, gst_on_fee, ticket_total
+            FROM booking_tickets
+            ORDER BY booking_id, seat_id
+            """
+        ).fetchall()
+        all_ticket_rows = [dict(row) for row in ticket_records]
+
+        # Export the complete event history from SQLite as well. The in-memory
+        # list contains only events created during this execution.
+        event_records = self.connection.execute(
+            """
+            SELECT ts, command, reference, result, reason, refund_amount,
+                   points_earned, points_reversed, points_credited
+            FROM booking_events
+            ORDER BY event_id
+            """
+        ).fetchall()
+        all_event_rows = [dict(row) for row in event_records]
+
+        write_csv("ticket_lines.csv", TICKET_HEADERS, all_ticket_rows)
+        write_csv("booking_events.csv", EVENT_HEADERS, all_event_rows)
         write_csv("seat_maps.csv", SEATMAP_HEADERS, self.seatmap_rows)
+        self.write_occupancy_report()
 
         print("\nCommand processing completed.")
-        print(f"Ticket lines generated: {len(self.ticket_rows)}")
-        print(f"Booking events generated: {len(self.event_rows)}")
+        print(f"Ticket lines exported: {len(all_ticket_rows)}")
+        print(f"Booking events exported: {len(all_event_rows)}")
         print(f"Seat map rows generated: {len(self.seatmap_rows)}")
+        print("Occupancy summary generated: occupancy_summary.csv")
         print(f"Output folder: {OUTPUT_DIR}")
 
 
