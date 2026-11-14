@@ -34,13 +34,19 @@ OCCUPANCY_HEADERS = [
 
 def money(value):
     return Decimal(str(value)).quantize(
-        Decimal("0.01"), rounding=ROUND_HALF_UP
+        Decimal("0.01"),
+        rounding=ROUND_HALF_UP
     )
+
+
+# BR-09: Calculate loyalty points on final ticket price.
+# GST and convenience fees are excluded.
+def calculate_loyalty_points(ticket_price):
+    return int(money(ticket_price) // Decimal("10"))
 
 
 def parse_time(value):
     return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
-
 
 def write_csv(filename, headers, rows):
     OUTPUT_DIR.mkdir(exist_ok=True)
@@ -747,7 +753,7 @@ class CommandProcessor:
             )
             ticket_total += total
 
-            earned_points += int(final_price // 10)
+            earned_points += calculate_loyalty_points(final_price)
 
             self.ticket_rows.append({
                 "booking_id": booking_id,
