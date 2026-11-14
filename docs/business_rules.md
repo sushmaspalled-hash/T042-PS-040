@@ -52,11 +52,11 @@
 
 ### BR-09: Loyalty Points
 
-* Earn 1 point for every ₹10 of ticket price.
+* Earn 1 point for every ₹10 of final ticket price after discounts and loyalty redemption.
+* GST and convenience fees are excluded from points calculation.
 * 100 points = ₹50 discount.
 * Maximum redemption is 50% of ticket price.
 * Cancelled bookings reverse earned points.
-
 ### BR-10: Cancellation
 
 * More than 4 hours before show: 75% refund.
