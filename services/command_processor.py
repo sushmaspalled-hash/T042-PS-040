@@ -58,6 +58,15 @@ def write_csv(filename, headers, rows):
 
 
 class CommandProcessor:
+    def calculate_dynamic_multiplier(self, occupancy):
+        occupancy = Decimal(str(occupancy))
+
+        if occupancy < Decimal("50"):
+             return Decimal("1.0")
+        elif occupancy < Decimal("80"):
+            return Decimal("1.15")
+        else:
+            return Decimal("1.30")
 
     def __init__(self):
         self.connection = get_connection()
@@ -605,6 +614,15 @@ class CommandProcessor:
             "offer_discount": money(discount),
             "price": money(price)
         }
+        def calculate_dynamic_multiplier(self, occupancy):
+            occupancy = Decimal(str(occupancy))
+
+            if occupancy < Decimal("50"):
+                return Decimal("1.0")
+            elif occupancy < Decimal("80"):
+                return Decimal("1.15")
+            else:
+                return Decimal("1.30")
 
     def book(self, parts):
         _, booking_id, ts, hold_id, payment_mode, points_text, ages_text = parts
